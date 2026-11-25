@@ -8,6 +8,7 @@ from google.genai.errors import APIError
 from google.genai import types
 from pydantic import ValidationError
 
+from llm_errors import is_transient
 from models import LoanApplication
 
 
@@ -113,9 +114,14 @@ if __name__ == "__main__":
         try:
             extracted_application = extract(application_text)
         except APIError as error:
-            # Report service/API errors and continue; these are not extraction results.
-            print(f"Gemini API request failed: {error}")
-            continue
+            if is_transient(error):
+                # The SDK may retry eligible errors; skip this case if it still fails.
+                print(f"Temporary Gemini API error; skipping this case for now: {error}")
+                continue
+
+            # Invalid requests or credentials need correction, so don't hide the error.
+            print(f"Non-retryable Gemini API error; fix the request or credentials: {error}")
+            raise
 
         print("Validated result:")
         if extracted_application is not None:
