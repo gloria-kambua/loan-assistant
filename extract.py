@@ -4,18 +4,49 @@ import os
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai.errors import APIError
 from google.genai import types
 from pydantic import ValidationError
 
 from models import LoanApplication
 
 
-# Fictional input used only to exercise the extraction prototype.
-FAKE_APPLICATION = """
-Field officer notes: Mary Wanjiku is applying for an individual loan of KES 120,000
-for purchase of shop inventory. Her stated monthly income is 45,000. She has named
-Peter Otieno as her guarantor.
-"""
+# Fictional field notes for manually checking extraction edge cases.
+TEST_CASES = [
+    (
+        "No guarantor mentioned",
+        "Jane Wambui applies for an individual loan of KES 80,000 to buy market "
+        "stock. Her monthly income is KES 32,000.",
+        "guarantor should be None",
+    ),
+    (
+        "Amount written as shorthand",
+        "Brian Otieno wants an individual loan of 120k for a motorcycle repair "
+        "shop. His monthly income is KES 55,000. Guarantor is Lucy Achieng.",
+        "requested_amount should be 120000",
+    ),
+    (
+        "Amount written in words",
+        "Grace Njeri requests an individual loan of one hundred and twenty "
+        "thousand shillings to expand her tailoring shop. Her monthly income is "
+        "KES 48,000.",
+        "requested_amount should be 120000",
+    ),
+    (
+        "Applicant amount and officer suggestion",
+        "Asha Njeri applied for an individual loan of KES 150,000 to restock her "
+        "salon. The officer suggests reducing it to KES 100,000. Her monthly "
+        "income is KES 60,000.",
+        "check whether requested_amount reflects the applicant's request: 150000",
+    ),
+    (
+        "Swahili and Sheng notes",
+        "Naitwa Amina Njeri. Nahitaji mkopo wa shilingi elfu mia moja nifungue "
+        "kibanda ya smokie. Income yangu ni elfu arobaini na tano kwa mwezi. "
+        "Sina guarantor.",
+        "requested_amount should be 100000, monthly_income 45000, and guarantor None",
+    ),
+]
 
 
 def extract(text: str) -> LoanApplication | None:
@@ -74,11 +105,20 @@ Application text:
 
 
 if __name__ == "__main__":
-    # Run the complete extraction flow on the fictional field-note example.
-    extracted_application = extract(FAKE_APPLICATION)
+    # Run every case separately so a temporary API failure does not skip later cases.
+    for case_name, application_text, expected_check in TEST_CASES:
+        print(f"\n=== {case_name} ===")
+        print(f"Expected check: {expected_check}")
 
-    print("Validated result:")
-    if extracted_application is not None:
-        print(extracted_application.model_dump())
-    else:
-        print("No valid loan application was extracted.")
+        try:
+            extracted_application = extract(application_text)
+        except APIError as error:
+            # Report service/API errors and continue; these are not extraction results.
+            print(f"Gemini API request failed: {error}")
+            continue
+
+        print("Validated result:")
+        if extracted_application is not None:
+            print(extracted_application.model_dump())
+        else:
+            print("No valid loan application was extracted.")
